@@ -65,6 +65,8 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:10
 .pc .nm{padding:8px 10px;font-weight:600;font-size:14px}
 .pc .sm{padding:0 10px 10px;font-size:12px;color:var(--mu)}
 .cat{margin-bottom:18px}.chead{display:flex;align-items:center;gap:6px;margin:4px 2px 8px}.chead b{flex:1;font-size:15px}.chead b small{color:var(--mu);font-weight:400}.chead button{border:1px solid var(--bd);background:var(--card);color:var(--tx);border-radius:8px;padding:6px 10px;font-size:13px}
+.chip{font-size:12px;background:rgba(255,255,255,.22);border-radius:10px;padding:2px 8px;margin-left:6px;font-weight:400;cursor:pointer}
+.sep{border:0;border-top:1px solid var(--bd);margin:16px 0 8px}
 .pprev{width:120px;height:120px;border-radius:12px;background:var(--hd);object-fit:cover;display:block;margin:8px 0}
 .stats.s3{grid-template-columns:repeat(3,1fr)}.stat[data-alinan]{border-color:var(--pr);cursor:pointer}
 .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px}
@@ -83,7 +85,7 @@ table.sm{width:100%;border-collapse:collapse;background:var(--card);border-radiu
 </head>
 <body>
 <header>
-  <h1><span>🖨️ Üretim Maliyet</span><button id="btnSet">⚙️ Ayarlar</button></h1>
+  <h1><span>🖨️ Üretim Maliyet<small id="syncChip" class="chip hide"></small></span><button id="btnSet">⚙️ Ayarlar</button></h1>
   <div class="tabs">
     <button data-tab="uretim" class="on">Üretim</button>
     <button data-tab="satis">Satış</button>
@@ -175,6 +177,18 @@ table.sm{width:100%;border-collapse:collapse;background:var(--card);border-radiu
   </div>
   <p style="font-size:12px;color:var(--mu)">Maliyet = dakika × dakika ücreti + filament<br>Adet maliyeti = maliyet ÷ adet<br>Tane fiyat = adet maliyeti × çarpan</p>
   <button class="btn" id="setSave">Kaydet</button>
+  <hr class="sep">
+  <h3 style="margin:0 0 4px">☁️ Google Sheets senkron</h3>
+  <p style="font-size:12px;color:var(--mu);margin:0 0 4px">Telefon, bilgisayar ve Google tablon aynı kayıtları görür. Kurulum adımları için kurulum yazısına bak.</p>
+  <label>Anahtar (şifre, kendin belirle)</label><input id="syKey" autocomplete="off" placeholder="örn: mert-2026-xyz">
+  <button class="btn sec" id="syCopy">1) Kurulum kodunu kopyala</button>
+  <label>Web uygulaması adresi</label><input id="syUrl" autocomplete="off" placeholder="https://script.google.com/macros/s/.../exec">
+  <button class="btn" id="syConnect">2) Bağlan ve senkronla</button>
+  <button class="btn sec" id="syNow">Şimdi senkronla</button>
+  <button class="btn sec" id="syImport">Google tablosundaki verileri içe aktar</button>
+  <button class="btn sec" id="syOff">Bağlantıyı kes</button>
+  <small class="hint" id="syInfo"></small>
+  <hr class="sep">
   <button class="btn sec" id="exCsvU">Üretim CSV</button>
   <button class="btn sec" id="exCsvS">Satış CSV</button>
   <button class="btn sec" id="exJson">Yedek al (JSON)</button>
@@ -191,10 +205,200 @@ table.sm{width:100%;border-collapse:collapse;background:var(--card);border-radiu
   <div id="pGridBox"><div class="gridwrap" id="pGrid"></div></div>
 </div></div>
 
+<script type="text/plain" id="gsCode">// Üretim Maliyet uygulaması - Google Sheets senkron kodu
+// Bu kod, tablonun içindeki Apps Script'e yapıştırılır (Uzantılar > Apps Script).
+
+const ANAHTAR = "BURAYA_ANAHTAR";
+const VERI = "Veri";
+
+function doGet() {
+  return cevap({ ok: true, mesaj: "Üretim senkron çalışıyor" });
+}
+
+function doPost(e) {
+  let req;
+  try {
+    req = JSON.parse(e.postData.contents);
+  } catch (x) {
+    return cevap({ ok: false, hata: "Bozuk istek" });
+  }
+  if (req.key !== ANAHTAR) return cevap({ ok: false, hata: "Anahtar yanlış" });
+
+  const kilit = LockService.getScriptLock();
+  kilit.waitLock(25000);
+  try {
+    if (req.action === "sync") return cevap(senkron(req));
+    if (req.action === "import") return cevap(iceAktar());
+    return cevap({ ok: false, hata: "Bilinmeyen işlem" });
+  } catch (err) {
+    return cevap({ ok: false, hata: String(err) });
+  } finally {
+    kilit.releaseLock();
+  }
+}
+
+function cevap(o) {
+  return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(
+    ContentService.MimeType.JSON
+  );
+}
+
+function veriSayfasi() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(VERI);
+  if (!sh) {
+    sh = ss.insertSheet(VERI);
+    sh.getRange("A:B").setNumberFormat("@");
+    sh.getRange("F:F").setNumberFormat("@");
+    sh.appendRow(["koleksiyon", "id", "ut", "silindi", "sunucu_zamani", "json"]);
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function satirdanDegisiklik(r) {
+  const silindi = Number(r[3]) === 1;
+  return {
+    c: String(r[0]),
+    id: String(r[1]),
+    ut: Number(r[2]),
+    del: silindi,
+    r: silindi ? null : JSON.parse(r[5]),
+  };
+}
+
+function senkron(req) {
+  const T = Date.now();
+  const sh = veriSayfasi();
+  const son = sh.getLastRow();
+  const rows = son > 1 ? sh.getRange(2, 1, son - 1, 6).getValues() : [];
+  const idx = {};
+  rows.forEach(function (r, i) {
+    idx[String(r[1])] = i;
+  });
+
+  let degisti = false;
+  const reddedilen = [];
+  (req.changes || []).forEach(function (ch) {
+    const id = String(ch.id);
+    const yeni = [ch.c, id, ch.ut, ch.del ? 1 : 0, T, ch.del ? "" : JSON.stringify(ch.r)];
+    const i = idx[id];
+    if (i === undefined) {
+      rows.push(yeni);
+      idx[id] = rows.length - 1;
+      degisti = true;
+    } else if (Number(rows[i][2]) < ch.ut) {
+      rows[i] = yeni;
+      degisti = true;
+    } else {
+      reddedilen.push(rows[i]);
+    }
+  });
+  if (degisti) sh.getRange(2, 1, rows.length, 6).setValues(rows);
+
+  const since = Number(req.since) || 0;
+  const gorulen = {};
+  const out = [];
+  rows.forEach(function (r) {
+    const st = Number(r[4]);
+    if (st > since && st !== T) {
+      gorulen[String(r[1])] = true;
+      out.push(satirdanDegisiklik(r));
+    }
+  });
+  reddedilen.forEach(function (r) {
+    if (!gorulen[String(r[1])]) out.push(satirdanDegisiklik(r));
+  });
+
+  if (req.view) {
+    gorunumYaz("Üretim (uygulama)", req.view.uretim);
+    gorunumYaz("Satış (uygulama)", req.view.satis);
+  }
+  return { ok: true, t: T, changes: out };
+}
+
+function gorunumYaz(ad, veri) {
+  if (!veri || !veri.length) return;
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(ad);
+  if (!sh) sh = ss.insertSheet(ad);
+  sh.clearContents();
+  sh.getRange(1, 1, veri.length, veri[0].length).setValues(veri);
+  sh.setFrozenRows(1);
+}
+
+// ---- Mevcut tablodaki sekmelerden içe aktarma ----
+function sade(s) {
+  return String(s)
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/ı/g, "i")
+    .toLowerCase();
+}
+
+function tarihISO(v, tz) {
+  if (v instanceof Date) return Utilities.formatDate(v, tz, "yyyy-MM-dd");
+  const m = String(v).match(/(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})/);
+  if (!m) return "";
+  return m[3] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2);
+}
+
+function sayi(v) {
+  if (typeof v === "number") return String(v);
+  return String(v).replace(",", ".").trim();
+}
+
+function iceAktar() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tz = ss.getSpreadsheetTimeZone();
+  let u = null;
+  let s = null;
+  const adlar = [];
+  ss.getSheets().forEach(function (sh) {
+    const ad = sh.getName();
+    adlar.push(ad);
+    const n = sade(ad);
+    if (n.indexOf("(uygulama)") >= 0 || ad === VERI) return;
+    if (!u && n.indexOf("uretim") >= 0) u = sh;
+    else if (!s && n.indexOf("gonder") >= 0) s = sh;
+  });
+  if (!u || !s) {
+    return {
+      ok: false,
+      hata:
+        "Sekmeler bulunamadı. Üretim sekmesinin adında 'üretim', satış sekmesinin adında 'gönder' geçmeli. Mevcut sekmeler: " +
+        adlar.join(", "),
+    };
+  }
+
+  const uretim = [];
+  const uv = u.getLastRow() > 1 ? u.getRange(2, 1, u.getLastRow() - 1, 6).getValues() : [];
+  uv.forEach(function (r) {
+    const urun = String(r[2]).trim();
+    const tarih = tarihISO(r[0], tz);
+    if (!urun || !tarih || r[3] === "") return;
+    uretim.push({ tarih: tarih, urun: urun, adet: sayi(r[3]), dk: sayi(r[4]), fil: sayi(r[5]) });
+  });
+
+  const satis = [];
+  const sv = s.getLastRow() > 1 ? s.getRange(2, 1, s.getLastRow() - 1, 4).getValues() : [];
+  sv.forEach(function (r) {
+    const urun = String(r[1]).trim();
+    const tarih = tarihISO(r[0], tz);
+    if (!urun || !tarih || r[2] === "") return;
+    satis.push({ tarih: tarih, urun: urun, adet: sayi(r[2]), fiyat: sayi(r[3]) });
+  });
+
+  const a = s.getRange("G2").getValue();
+  return { ok: true, uretim: uretim, satis: satis, alinan: typeof a === "number" ? a : 0 };
+}
+</script>
 <script>
 const $=id=>document.getElementById(id);
 const KEY='uretim_v2';
-const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const uid=()=>'i'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const h32=s=>{let h=5381;for(let i=0;i<s.length;i++)h=((h*33)^s.charCodeAt(i))>>>0;return h};
+const hid=s=>h32(s).toString(36);
 const num=v=>{const n=parseFloat(String(v).replace(',','.'));return isNaN(n)?0:n};
 const fmt=(n,d=2)=>(+n).toLocaleString('tr-TR',{maximumFractionDigits:d});
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -205,7 +409,7 @@ const L=i=>String.fromCharCode(65+i);
 function pidOf(d,name){let p=d.products.find(x=>x.ad===name);if(!p){p={id:uid(),ad:name,resim:'',cid:''};d.products.push(p)}return p.id}
 function load(){
   try{const d=JSON.parse(localStorage.getItem(KEY));if(d)return d}catch(e){}
-  const d={products:[],cats:[],uretim:[],satis:[],set:{dk:0.2,carpan:2}};
+  const d={products:[],cats:[],uretim:[],satis:[],tomb:{},set:{dk:0.2,carpan:2}};
   try{ // v1'den taşı
     const os=JSON.parse(localStorage.getItem('uretim_set_v1'));if(os)d.set=os;
     const old=JSON.parse(localStorage.getItem('uretim_v1'));
@@ -213,9 +417,26 @@ function load(){
   }catch(e){}
   return d;
 }
-let db=load();if(!db.cats)db.cats=[];
+let db=load();if(!db.cats)db.cats=[];if(!db.tomb)db.tomb={};
 if(db.alinan===undefined)db.alinan=String(db.satis.reduce((a,r)=>a+num(r.alinan),0)||'');
-function save(){localStorage.setItem(KEY,JSON.stringify(db))}
+const COLS=['products','cats','uretim','satis'];
+let ordC=0;
+function hashes(){const cur={};COLS.forEach(c=>db[c].forEach(r=>{const{ut,...rest}=r;cur[r.id]=JSON.stringify(rest)}));return cur}
+function metaH(){return JSON.stringify([db.set,db.alinan])}
+function rehash(){localStorage.setItem(KEY+'_h',JSON.stringify(hashes()));localStorage.setItem(KEY+'_m',metaH())}
+function stamp(){
+  const now=Date.now();
+  let prev={};try{prev=JSON.parse(localStorage.getItem(KEY+'_h'))||{}}catch(e){}
+  COLS.forEach(c=>db[c].forEach(r=>{if(!r.ord)r.ord=now*1000+(++ordC)}));
+  const cur=hashes();
+  COLS.forEach(c=>db[c].forEach(r=>{if(!r.ut||prev[r.id]!==cur[r.id])r.ut=now}));
+  for(const id in prev)if(!(id in cur)&&!db.tomb[id])db.tomb[id]=now;
+  for(const id in cur)delete db.tomb[id];
+  if(localStorage.getItem(KEY+'_m')!==metaH()||!db.mut)db.mut=now;
+  rehash();
+}
+function persist(){localStorage.setItem(KEY,JSON.stringify(db))}
+function save(){stamp();persist();schedSync()}
 const prod=id=>db.products.find(p=>p.id===id);
 const pname=id=>prod(id)?prod(id).ad:'—';
 
@@ -489,10 +710,10 @@ $('fpFile').onchange=e=>{
   const f=e.target.files[0];if(!f)return;
   const img=new Image(),url=URL.createObjectURL(f);
   img.onload=()=>{
-    const m=240,s=Math.min(1,m/Math.max(img.width,img.height)),c=document.createElement('canvas');
+    const m=200,s=Math.min(1,m/Math.max(img.width,img.height)),c=document.createElement('canvas');
     c.width=Math.round(img.width*s);c.height=Math.round(img.height*s);
     c.getContext('2d').drawImage(img,0,0,c.width,c.height);
-    pImg=c.toDataURL('image/jpeg',0.75);URL.revokeObjectURL(url);showPrev();
+    let q=0.7;pImg=c.toDataURL('image/jpeg',q);while(pImg.length>40000&&q>0.3){q-=0.1;pImg=c.toDataURL('image/jpeg',q)}URL.revokeObjectURL(url);showPrev();
   };
   img.src=url;
 };
@@ -546,8 +767,8 @@ function csv(sk){
 $('exCsvU').onclick=()=>csv('uretim');$('exCsvS').onclick=()=>csv('satis');
 $('exJson').onclick=()=>dl('uretim-yedek.json',JSON.stringify(db),'application/json');
 $('imJson').onclick=()=>$('file').click();
-$('file').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{try{const d=JSON.parse(rd.result);if(!d.products||!d.uretim)throw 0;db=d;if(!db.satis)db.satis=[];if(!db.cats)db.cats=[];save();render();alert('Yüklendi.')}catch(x){alert('Dosya okunamadı.')}};rd.readAsText(f)};
-$('clear').onclick=()=>{if(confirm('Ürünler, üretim ve satış dahil HER ŞEY silinsin mi?')){db={products:[],cats:[],uretim:[],satis:[],set:db.set};save();render();$('mSet').classList.remove('show')}};
+$('file').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{try{const d=JSON.parse(rd.result);if(!d.products||!d.uretim)throw 0;if(!confirm('Yedekteki kayıtlar şimdiki kayıtların yerine geçecek (bağlıysan bulutta da). Devam?'))return;db=d;if(!db.satis)db.satis=[];if(!db.cats)db.cats=[];if(!db.tomb)db.tomb={};save();render();alert('Yüklendi.')}catch(x){alert('Dosya okunamadı.')}};rd.readAsText(f)};
+$('clear').onclick=()=>{if(confirm('Ürünler, üretim ve satış dahil HER ŞEY silinsin mi? Bağlıysan bulutta ve diğer cihazlarda da silinir.')){db={products:[],cats:[],uretim:[],satis:[],tomb:db.tomb,set:db.set,alinan:'',mut:db.mut};save();render();$('mSet').classList.remove('show')}};
 
 const SEED_U=`2026-05-30|Kalp Anahtarlık Kırmızı|23|396|167
 2026-05-30|Milli Takım Anahtarlık|43|620|160
@@ -638,23 +859,131 @@ const SEED_S=`2026-05-31|Milli Takım Anahtarlık|43|13.25
 const CATKW=[['Kalp','Kalp'],['Yıldız','Yıldız'],['Kedi','Kedi'],['Şura','Şura'],['Milli','Milli Takım'],['Altıgen','Altıgen']];
 function catFor(name){
   const k=CATKW.find(x=>name.includes(x[0]));if(!k)return '';
-  let c=db.cats.find(x=>x.ad===k[1]);if(!c){c={id:uid(),ad:k[1]};db.cats.push(c)}return c.id;
+  let c=db.cats.find(x=>x.ad===k[1]);if(!c){c={id:'sc'+hid(k[1]),ad:k[1]};db.cats.push(c)}return c.id;
 }
 function seedProd(name){
   let p=db.products.find(x=>x.ad===name);
-  if(!p){p={id:uid(),ad:name,resim:'',cid:''};db.products.push(p)}
+  if(!p){p={id:'sp'+hid(name),ad:name,resim:'',cid:''};db.products.push(p)}
   if(!p.cid)p.cid=catFor(name);
   return p.id;
 }
 $('seed').onclick=()=>{
   if((db.uretim.length||db.satis.length)&&!confirm('Mevcut üretim ve satış kayıtları silinip tablodaki kayıtlar yüklenecek. Ürün resimleri ve kategoriler korunur. Devam?'))return;
   db.uretim=[];db.satis=[];
-  SEED_U.split('\n').forEach(l=>{const[t,u,a,d,f]=l.split('|');db.uretim.push({id:uid(),tarih:t,pid:seedProd(u),adet:a,dk:d,fil:f})});
-  SEED_S.split('\n').forEach(l=>{const[t,u,a,f]=l.split('|');db.satis.push({id:uid(),tarih:t,pid:seedProd(u),adet:a,fiyat:f})});
+  SEED_U.split('\n').forEach((l,i)=>{const[t,u,a,d,f]=l.split('|');db.uretim.push({id:'su'+i,ord:i+1,tarih:t,pid:seedProd(u),adet:a,dk:d,fil:f})});
+  SEED_S.split('\n').forEach((l,i)=>{const[t,u,a,f]=l.split('|');db.satis.push({id:'ss'+i,ord:i+1,tarih:t,pid:seedProd(u),adet:a,fiyat:f})});
   save();render();$('mSet').classList.remove('show');
 };
 
+/* ---------- bulut senkron (Google Sheets) ---------- */
+const SKEY='uretim_sync';
+const cfg=()=>{try{return JSON.parse(localStorage.getItem(SKEY))||{}}catch(e){return {}}};
+const setCfg=c=>localStorage.setItem(SKEY,JSON.stringify(c));
+let syncing=false,again=false,syT=null;
+function setStat(st,msg){
+  const c=cfg(),el=$('syncChip');
+  if(!c.url){el.classList.add('hide');$('syInfo').textContent='';return}
+  el.classList.remove('hide');
+  el.textContent=st==='sync'?'⏳ senkron':st==='ok'?'☁️ ✓':'⚠️ senkron yok';
+  el.title=msg||'';
+  const i=$('syInfo');i.className='hint'+(st==='err'?' err':'');
+  i.textContent=st==='ok'?'Bağlı. Son senkron: '+new Date().toLocaleTimeString('tr-TR'):st==='err'?'Hata: '+msg:'';
+}
+async function post(url,body){
+  const r=await fetch(url,{method:'POST',body:JSON.stringify(body),redirect:'follow'});
+  const t=await r.text();
+  try{return JSON.parse(t)}catch(e){throw new Error('Sunucu yanıtı anlaşılamadı. Adres doğru mu, "Herkes" erişimiyle dağıttın mı?')}
+}
+function buildView(){
+  const U=SHEETS.uretim,S=SHEETS.satis;
+  const row=(sk,r,ri)=>{const S2=SHEETS[sk];return S2.cols.map((c,ci)=>({c,ci})).filter(x=>x.c.t!=='img').map(({c,ci})=>c.t==='date'?fdate(r.tarih):c.t==='prod'?pname(r.pid):+(+safe(sk,ci,ri)).toFixed(4))};
+  const u=[U.cols.filter(c=>c.t!=='img').map(c=>c.h)];
+  db.uretim.forEach((r,ri)=>u.push(row('uretim',r,ri)));
+  const t=toplamSatis(),a=alinanVal();
+  const s=[S.cols.map(c=>c.h).concat(['TOPLAM TUTAR','ALINAN BEDEL','KALAN'])];
+  db.satis.forEach((r,ri)=>{const x=row('satis',r,ri);s.push(ri===0?x.concat([+t.toFixed(4),+a.toFixed(4),+(t-a).toFixed(4)]):x)});
+  return {uretim:u,satis:s};
+}
+function applyRemote(chs){
+  chs.forEach(ch=>{
+    if(ch.c==='meta'){if(ch.ut>(db.mut||0)){db.set=ch.r.set;db.alinan=ch.r.alinan;db.mut=ch.ut}return}
+    let col=null,loc=null;
+    COLS.forEach(c=>{const x=db[c].find(r=>r.id===ch.id);if(x){col=c;loc=x}});
+    const tl=db.tomb[ch.id]||0;
+    if(ch.del){
+      if(loc&&ch.ut>loc.ut)db[col]=db[col].filter(r=>r.id!==ch.id);
+      if(!loc||ch.ut>loc.ut)db.tomb[ch.id]=Math.max(tl,ch.ut);
+    }else{
+      if(tl>=ch.ut)return;
+      if(loc){if(ch.ut>loc.ut){Object.keys(loc).forEach(k=>delete loc[k]);Object.assign(loc,ch.r)}}
+      else if(COLS.includes(ch.c)){db[ch.c].push(ch.r);delete db.tomb[ch.id]}
+    }
+  });
+  COLS.forEach(c=>db[c].sort((a,b)=>(a.ord||0)-(b.ord||0)));
+  rehash();persist();render();
+}
+async function sync(){
+  const cf=cfg();if(!cf.url)return '';
+  if(syncing){again=true;return ''}
+  syncing=true;setStat('sync');let err='';
+  try{
+    const start=Date.now(),lp=cf.lp||0,changes=[];
+    COLS.forEach(c=>db[c].forEach(r=>{if((r.ut||0)>lp)changes.push({c,id:r.id,ut:r.ut,r})}));
+    for(const id in db.tomb)if(db.tomb[id]>lp)changes.push({c:'x',id,ut:db.tomb[id],del:true});
+    if((db.mut||0)>lp)changes.push({c:'meta',id:'meta',ut:db.mut,r:{set:db.set,alinan:db.alinan}});
+    const view=buildView(),vh=h32(JSON.stringify(view));
+    const body={key:cf.key,action:'sync',since:cf.since||0,changes};
+    if(vh!==cf.vh)body.view=view;
+    const res=await post(cf.url,body);
+    if(!res.ok)throw new Error(res.hata||'bilinmeyen hata');
+    applyRemote(res.changes||[]);
+    const c2=cfg();c2.since=res.t;c2.lp=start;c2.vh=vh;setCfg(c2);
+    setStat('ok');
+  }catch(e){err=e.message||String(e);setStat('err',err)}
+  finally{syncing=false;if(again){again=false;sync()}}
+  return err;
+}
+function schedSync(){if(!cfg().url)return;clearTimeout(syT);syT=setTimeout(sync,1500)}
+$('syncChip').onclick=()=>sync();
+$('syCopy').onclick=async()=>{
+  const k=$('syKey').value.trim();
+  if(k.length<4){alert('Önce en az 4 karakterlik bir anahtar yaz.');return}
+  const code=$('gsCode').textContent.replace('"BURAYA_ANAHTAR"',JSON.stringify(k));
+  try{await navigator.clipboard.writeText(code);alert('Kod kopyalandı. Google tablosunda Uzantılar > Apps Script içine yapıştır.')}
+  catch(e){const t=document.createElement('textarea');t.value=code;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();alert('Kod kopyalandı.')}
+};
+$('syConnect').onclick=async()=>{
+  const url=$('syUrl').value.trim(),key=$('syKey').value.trim();
+  if(!/^https:\/\/script\.google\.com\/.+\/exec/.test(url)){alert('Adres https://script.google.com/.../exec şeklinde olmalı.');return}
+  if(!key){alert('Anahtarı yaz.');return}
+  if(db.products.length||db.uretim.length||db.satis.length){stamp();persist()}
+  setCfg({url,key,since:0,lp:0,vh:0});
+  const err=await sync();
+  if(err){alert('Bağlanamadı: '+err)}else{alert('Bağlandı. Kayıtlar senkronlandı.')}
+};
+$('syNow').onclick=async()=>{if(!cfg().url){alert('Önce bağlan.');return}const e=await sync();if(e)alert('Hata: '+e)};
+$('syOff').onclick=()=>{if(confirm('Bağlantı kesilsin mi? Kayıtlar bu cihazda kalır.')){localStorage.removeItem(SKEY);setStat('');$('syUrl').value=''}};
+$('syImport').onclick=async()=>{
+  const c=cfg();if(!c.url){alert('Önce bağlan.');return}
+  if((db.uretim.length||db.satis.length)&&!confirm('Mevcut üretim ve satış kayıtları silinip Google tablosundaki kayıtlar yüklenecek. Ürün resimleri ve kategoriler korunur. Devam?'))return;
+  try{
+    const r=await post(c.url,{key:c.key,action:'import'});
+    if(!r.ok)throw new Error(r.hata||'hata');
+    db.uretim=[];db.satis=[];
+    r.uretim.forEach((x,i)=>db.uretim.push({id:'su'+i,ord:i+1,tarih:x.tarih,pid:seedProd(x.urun),adet:x.adet,dk:x.dk,fil:x.fil}));
+    r.satis.forEach((x,i)=>db.satis.push({id:'ss'+i,ord:i+1,tarih:x.tarih,pid:seedProd(x.urun),adet:x.adet,fiyat:x.fiyat}));
+    if(r.alinan)db.alinan=String(r.alinan);
+    save();render();$('mSet').classList.remove('show');
+    alert('İçe aktarıldı: '+r.uretim.length+' üretim, '+r.satis.length+' satış.');
+  }catch(e){alert('İçe aktarılamadı: '+e.message)}
+};
+$('btnSet').addEventListener('click',()=>{const c=cfg();$('syUrl').value=c.url||'';$('syKey').value=c.key||''});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&cfg().url)sync()});
+window.addEventListener('online',()=>{if(cfg().url)sync()});
+setInterval(()=>{if(!document.hidden&&cfg().url)sync()},30000);
+
 render();
+if(cfg().url){setStat('sync');sync()}
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
 </script>
 </body>
