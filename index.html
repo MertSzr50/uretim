@@ -66,6 +66,7 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:10
 .pc .sm{padding:0 10px 10px;font-size:12px;color:var(--mu)}
 .cat{margin-bottom:18px}.chead{display:flex;align-items:center;gap:6px;margin:4px 2px 8px}.chead b{flex:1;font-size:15px}.chead b small{color:var(--mu);font-weight:400}.chead button{border:1px solid var(--bd);background:var(--card);color:var(--tx);border-radius:8px;padding:6px 10px;font-size:13px}
 .pprev{width:120px;height:120px;border-radius:12px;background:var(--hd);object-fit:cover;display:block;margin:8px 0}
+.stats.s3{grid-template-columns:repeat(3,1fr)}.stat[data-alinan]{border-color:var(--pr);cursor:pointer}
 .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px}
 .stat{background:var(--card);border-radius:12px;padding:10px;text-align:center;border:1px solid var(--bd)}
 .stat b{display:block;font-size:17px}.stat span{font-size:11px;color:var(--mu)}
@@ -92,7 +93,7 @@ table.sm{width:100%;border-collapse:collapse;background:var(--card);border-radiu
 </header>
 <main>
   <div id="vUretim"><div class="gridwrap" id="gU"></div></div>
-  <div id="vSatis" class="hide"><div class="gridwrap" id="gS"></div></div>
+  <div id="vSatis" class="hide"><div class="stats s3" id="sStats"></div><div class="gridwrap" id="gS"></div></div>
   <div id="vUrunler" class="hide"></div>
   <div id="vOzet" class="hide"></div>
 </main>
@@ -125,10 +126,8 @@ table.sm{width:100%;border-collapse:collapse;background:var(--card);border-radiu
   <div class="ff"><select id="fsUrun"></select><button type="button" data-newprod="fsUrun">＋</button></div>
   <div data-ff="fsAdet" data-label="Adet" data-sk="satis"></div>
   <div data-ff="fsFiyat" data-label="Adet fiyatı (₺)" data-sk="satis"></div>
-  <div data-ff="fsAlinan" data-label="Alınan bedel (₺)" data-sk="satis"></div>
   <div class="calc">
-    <div><span>Toplam tutar</span><b id="csTop">-</b></div>
-    <div><span>Kalan</span><b id="csKalan" style="color:var(--dn)">-</b></div>
+    <div><span>Tutar</span><b id="csTop">-</b></div>
   </div>
   <button class="btn" id="sSave">Kaydet</button>
   <button class="btn del hide" id="sDel">Sil</button>
@@ -158,6 +157,15 @@ table.sm{width:100%;border-collapse:collapse;background:var(--card);border-radiu
   <button class="btn sec" data-close="mCat">Vazgeç</button>
 </div></div>
 
+<!-- ALINAN BEDEL -->
+<div class="modal" id="mA"><div class="sheet">
+  <h2 style="margin:0 0 6px">Alınan bedel</h2>
+  <p style="font-size:13px;color:var(--mu);margin:0">Şu ana kadar tahsil ettiğin toplam tutar. Sayı ya da formül yazabilirsin, örn. =19974+500</p>
+  <div data-ff="faAlinan" data-label="Alınan bedel (₺)" data-sk="satis"></div>
+  <button class="btn" id="aSave">Kaydet</button>
+  <button class="btn sec" data-close="mA">Vazgeç</button>
+</div></div>
+
 <!-- AYARLAR -->
 <div class="modal" id="mSet"><div class="sheet">
   <h2 style="margin:0 0 6px">Ayarlar</h2>
@@ -171,7 +179,7 @@ table.sm{width:100%;border-collapse:collapse;background:var(--card);border-radiu
   <button class="btn sec" id="exCsvS">Satış CSV</button>
   <button class="btn sec" id="exJson">Yedek al (JSON)</button>
   <button class="btn sec" id="imJson">Yedekten yükle</button>
-  <button class="btn sec" id="seed">Tablodaki üretim kayıtlarını yükle</button>
+  <button class="btn sec" id="seed">Tablodaki kayıtları yükle (üretim + satış)</button>
   <button class="btn del" id="clear">Her şeyi sil</button>
   <button class="btn sec" data-close="mSet">Kapat</button>
   <input type="file" id="file" accept=".json" class="hide">
@@ -206,6 +214,7 @@ function load(){
   return d;
 }
 let db=load();if(!db.cats)db.cats=[];
+if(db.alinan===undefined)db.alinan=String(db.satis.reduce((a,r)=>a+num(r.alinan),0)||'');
 function save(){localStorage.setItem(KEY,JSON.stringify(db))}
 const prod=id=>db.products.find(p=>p.id===id);
 const pname=id=>prod(id)?prod(id).ad:'—';
@@ -219,9 +228,8 @@ const SHEETS={
     calc:(k,g)=>k==='mal'?g('dk')*db.set.dk+g('fil'):k==='am'?(g('adet')?g('mal')/g('adet'):0):g('am')*db.set.carpan},
   satis:{ad:'Satış',alias:['satis','satış'],cols:[
     {k:'tarih',h:'tarih',t:'date'},{k:'urun',h:'ÜRÜN',t:'prod'},
-    {k:'adet',h:'adet',t:'in'},{k:'fiyat',h:'adet fiyatı',t:'in'},{k:'top',h:'toplam tutar',t:'calc'},
-    {k:'alinan',h:'alınan bedel',t:'in'},{k:'kalan',h:'kalan',t:'calc'}],
-    calc:(k,g)=>k==='top'?g('adet')*g('fiyat'):g('top')-g('alinan')}
+    {k:'adet',h:'adet',t:'in'},{k:'fiyat',h:'ADET FİYATI',t:'in'},{k:'top',h:'TUTAR',t:'calc'}],
+    calc:(k,g)=>g('adet')*g('fiyat')}
 };
 for(const k in SHEETS)SHEETS[k].idx=key=>SHEETS[k].cols.findIndex(c=>c.k===key);
 
@@ -297,7 +305,7 @@ function renderGrid(sk,el,pick){
 /* ---------- sekmeler ---------- */
 let tab='uretim';
 function render(){
-  renderGrid('uretim',$('gU'));renderGrid('satis',$('gS'));
+  renderGrid('uretim',$('gU'));renderGrid('satis',$('gS'));renderSatisStats();
   renderProducts();renderSummary();
   $('fab').classList.toggle('hide',tab==='ozet');
 }
@@ -378,8 +386,8 @@ function previews(){
   const mal=d*db.set.dk+f,am=a?mal/a:0,fy=am*db.set.carpan;
   const o=(x,n=2)=>isNaN(x)?'#HATA':fmt(x,n)+' ₺';
   $('cuMal').textContent=o(mal);$('cuAdet').textContent=o(am,3);$('cuFiyat').textContent=o(fy);
-  const sa=g('fsAdet','satis'),sf=g('fsFiyat','satis'),sl=g('fsAlinan','satis');
-  $('csTop').textContent=o(sa*sf);$('csKalan').textContent=o(sa*sf-sl);
+  const sa=g('fsAdet','satis'),sf=g('fsFiyat','satis');
+  $('csTop').textContent=o(sa*sf);
 }
 $('uSave').onclick=()=>{
   const r={tarih:$('fuTarih').value,pid:$('fuUrun').value,adet:$('fuAdet').value.trim(),dk:$('fuDk').value.trim(),fil:$('fuFil').value.trim()};
@@ -396,16 +404,28 @@ function openS(ri){
   $('sTitle').textContent=r?`Satış düzenle (satır ${editS+2})`:'Yeni satış';
   $('fsTarih').value=r?r.tarih:new Date().toISOString().slice(0,10);
   fillSel('fsUrun',r?r.pid:'');
-  setFF('fsAdet',r?r.adet:'');setFF('fsFiyat',r?r.fiyat:'');setFF('fsAlinan',r?r.alinan:'');
+  setFF('fsAdet',r?r.adet:'');setFF('fsFiyat',r?r.fiyat:'');
   $('sDel').classList.toggle('hide',!r);previews();$('mS').classList.add('show');
 }
 $('sSave').onclick=()=>{
-  const r={tarih:$('fsTarih').value,pid:$('fsUrun').value,adet:$('fsAdet').value.trim(),fiyat:$('fsFiyat').value.trim(),alinan:$('fsAlinan').value.trim()};
+  const r={tarih:$('fsTarih').value,pid:$('fsUrun').value,adet:$('fsAdet').value.trim(),fiyat:$('fsFiyat').value.trim()};
   if(!r.tarih||!r.pid||!r.adet){alert('Tarih, ürün ve adet gerekli.');return}
   if(editS!=null)Object.assign(db.satis[editS],r);else{r.id=uid();db.satis.push(r)}
   save();render();$('mS').classList.remove('show');
 };
 $('sDel').onclick=()=>{if(confirm('Bu satış silinsin mi?')){db.satis.splice(editS,1);save();render();$('mS').classList.remove('show')}};
+
+/* ---------- satış özeti ---------- */
+function toplamSatis(){let t=0;db.satis.forEach((r,i)=>t+=safe('satis',4,i));return t}
+function alinanVal(){try{return evalInput(db.alinan||'','satis',new Set())}catch(e){return 0}}
+function renderSatisStats(){
+  const t=toplamSatis(),a=alinanVal(),k=t-a;
+  $('sStats').innerHTML=`<div class="stat"><b>${fmt(t)} ₺</b><span>TOPLAM TUTAR</span></div>
+    <div class="stat" data-alinan="1"><b>${fmt(a)} ₺ ✎</b><span>ALINAN BEDEL</span></div>
+    <div class="stat"><b style="color:${k>0.005?'var(--dn)':'var(--ok)'}">${fmt(k)} ₺</b><span>KALAN</span></div>`;
+}
+$('sStats').onclick=e=>{if(e.target.closest('[data-alinan]')){setFF('faAlinan',db.alinan||'');$('mA').classList.add('show')}};
+$('aSave').onclick=()=>{db.alinan=$('faAlinan').value.trim();save();render();$('mA').classList.remove('show')};
 
 /* ---------- ürünler ---------- */
 let editP=null,pImg='',pCb=null;
@@ -493,21 +513,21 @@ $('pDel').onclick=()=>{
 
 /* ---------- özet ---------- */
 function renderSummary(){
-  let tm=0,tt=0,ta=0,tk=0;
+  let tm=0;
   db.uretim.forEach((r,i)=>tm+=safe('uretim',6,i));
-  db.satis.forEach((r,i)=>{tt+=safe('satis',4,i);ta+=safe('satis',5,i);tk+=safe('satis',6,i)});
+  const tt=toplamSatis(),ta=alinanVal(),tk=tt-ta;
   const rows=db.products.map(p=>{
-    let u=0,um=0,s=0,st=0,sk=0;
-    db.uretim.forEach((r,i)=>{if(r.pid===p.id){u+=safe('uretim',3,i);um+=safe('uretim',6,i)}});
-    db.satis.forEach((r,i)=>{if(r.pid===p.id){s+=safe('satis',2,i);st+=safe('satis',4,i);sk+=safe('satis',6,i)}});
-    return {ad:p.ad,u,um,s,st,sk};
+    let u=0,s=0,st=0;
+    db.uretim.forEach((r,i)=>{if(r.pid===p.id)u+=safe('uretim',3,i)});
+    db.satis.forEach((r,i)=>{if(r.pid===p.id){s+=safe('satis',2,i);st+=safe('satis',4,i)}});
+    return {ad:p.ad,u,s,st};
   }).filter(x=>x.u||x.s);
   $('vOzet').innerHTML=`<div class="stats">
     <div class="stat"><b>${fmt(tm,0)} ₺</b><span>Toplam üretim maliyeti</span></div>
     <div class="stat"><b>${fmt(tt,0)} ₺</b><span>Toplam satış tutarı</span></div>
     <div class="stat"><b>${fmt(ta,0)} ₺</b><span>Alınan bedel</span></div>
     <div class="stat"><b style="color:var(--dn)">${fmt(tk,0)} ₺</b><span>Kalan (alacak)</span></div></div>`+
-    (rows.length?`<table class="sm"><tr><th>Ürün</th><th>Üretilen</th><th>Satılan</th><th>Stok</th><th>Satış ₺</th><th>Kalan ₺</th></tr>${rows.map(x=>`<tr><td>${esc(x.ad)}</td><td>${fmt(x.u,0)}</td><td>${fmt(x.s,0)}</td><td>${fmt(x.u-x.s,0)}</td><td>${fmt(x.st,0)}</td><td>${fmt(x.sk,0)}</td></tr>`).join('')}</table>`:'<div class="empty">Henüz veri yok.</div>');
+    (rows.length?`<table class="sm"><tr><th>Ürün</th><th>Üretilen</th><th>Satılan</th><th>Stok</th><th>Satış ₺</th></tr>${rows.map(x=>`<tr><td>${esc(x.ad)}</td><td>${fmt(x.u,0)}</td><td>${fmt(x.s,0)}</td><td>${fmt(x.u-x.s,0)}</td><td>${fmt(x.st,0)}</td></tr>`).join('')}</table>`:'<div class="empty">Henüz veri yok.</div>');
 }
 
 /* ---------- ayarlar / yedek ---------- */
@@ -529,7 +549,12 @@ $('imJson').onclick=()=>$('file').click();
 $('file').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{try{const d=JSON.parse(rd.result);if(!d.products||!d.uretim)throw 0;db=d;if(!db.satis)db.satis=[];if(!db.cats)db.cats=[];save();render();alert('Yüklendi.')}catch(x){alert('Dosya okunamadı.')}};rd.readAsText(f)};
 $('clear').onclick=()=>{if(confirm('Ürünler, üretim ve satış dahil HER ŞEY silinsin mi?')){db={products:[],cats:[],uretim:[],satis:[],set:db.set};save();render();$('mSet').classList.remove('show')}};
 
-const SEED=`2026-07-02|Hareketli Altıgen Anahtarlık|30|446|196.23
+const SEED_U=`2026-05-30|Kalp Anahtarlık Kırmızı|23|396|167
+2026-05-30|Milli Takım Anahtarlık|43|620|160
+2026-05-31|Kalp Anahtarlık Kırmızı|32|544|232
+2026-06-17|Kalp Anahtarlık Kırmızı|31|527|224.75
+2026-06-17|Milli Takım Anahtarlık|46|700|180
+2026-07-02|Hareketli Altıgen Anahtarlık|30|446|196.23
 2026-07-02|Hareketli Kedi|21|738|230
 2026-07-06|Hareketli Kedi|21|738|230
 2026-07-08|Yıldız Anahtarlık Turuncu|30|431|164.6
@@ -566,12 +591,66 @@ const SEED=`2026-07-02|Hareketli Altıgen Anahtarlık|30|446|196.23
 2026-10-03|Yıldız Anahtarlık Kahverengi|30|278|131
 2026-10-16|Yıldız Anahtarlık Kırmızı|30|278|131
 2026-10-17|Kalp Anahtarlık Kırmızı|16|200|86
-2026-10-18|Kalp Anahtarlık Açık Pembe|16|200|86
+2026-10-19|Kalp Anahtarlık Açık Pembe|16|200|86
 2026-10-21|Kalp Anahtarlık Mavi|16|200|86
 2026-10-22|Kalp Anahtarlık Açık Pembe|16|200|86`;
+const SEED_S=`2026-05-31|Milli Takım Anahtarlık|43|13.25
+2026-05-31|Kalp Anahtarlık Kırmızı|23|21.5
+2026-05-31|Kalp Anahtarlık Kırmızı|32|21.5
+2026-06-17|Milli Takım Anahtarlık|46|13.25
+2026-06-18|Kalp Anahtarlık Kırmızı|31|21.5
+2026-07-02|Hareketli Altıgen Anahtarlık|30|19
+2026-07-06|Hareketli Kedi|21|36
+2026-07-09|Hareketli Kedi|21|36
+2026-07-09|Yıldız Anahtarlık Turuncu|30|17
+2026-07-15|Kalp Anahtarlık Turuncu|32|21.5
+2026-07-17|Kalp Anahtarlık Turuncu|50|21.5
+2026-07-18|Hareketli Kedi Sarı|21|36
+2026-07-18|Hareketli Kalp Sarı|16|23.5
+2026-07-18|Yıldız Anahtarlık Sarı|30|16.72
+2026-07-29|Şura Spot|30|15
+2026-08-03|Yıldız Anahtarlık Turuncu|16|16.72
+2026-08-07|Kalp Anahtarlık Kırmızı|32|21.5
+2026-08-10|Kalp Anahtarlık Kırmızı|32|21.5
+2026-08-12|Kalp Anahtarlık Kırmızı|16|21.5
+2026-08-14|Kalp Anahtarlık Kırmızı|16|21.5
+2026-08-15|Şura Spot|50|12
+2026-08-17|Yıldız Anahtarlık Altın|120|16.72
+2026-09-02|Yıldız Anahtarlık Yeşil|20|16.72
+2026-09-03|Kalp Anahtarlık Yeşil|15|21.5
+2026-09-03|Yıldız Anahtarlık Yeşil|29|16.72
+2026-09-12|Yıldız Anahtarlık Yeşil|30|16.72
+2026-09-14|Yıldız Anahtarlık Yeşil|30|16.72
+2026-09-16|Kalp Anahtarlık Kahverengi|32|15.75
+2026-09-21|Kalp Anahtarlık Kahverengi|16|15.75
+2026-09-21|Kalp Anahtarlık Beyaz|16|15.75
+2026-09-23|Yıldız Anahtarlık Beyaz|30|12.45
+2026-09-26|Kalp Anahtarlık Kahverengi|32|15.75
+2026-09-29|Yıldız Anahtarlık Kahverengi|30|12.45
+2026-10-01|Yıldız Anahtarlık Kahverengi|30|12.45
+2026-10-02|Yıldız Anahtarlık Kahverengi|30|12.45
+2026-10-05|Yıldız Anahtarlık Kahverengi|30|12.45
+2026-10-17|Yıldız Anahtarlık Kırmızı|30|12.45
+2026-10-19|Kalp Anahtarlık Kırmızı|16|15.75
+2026-10-19|Kalp Anahtarlık Açık Pembe|16|15.75
+2026-10-19|Kalp Anahtarlık Mavi|16|15.75
+2026-10-23|Kalp Anahtarlık Açık Pembe|16|15.75`;
+const CATKW=[['Kalp','Kalp'],['Yıldız','Yıldız'],['Kedi','Kedi'],['Şura','Şura'],['Milli','Milli Takım'],['Altıgen','Altıgen']];
+function catFor(name){
+  const k=CATKW.find(x=>name.includes(x[0]));if(!k)return '';
+  let c=db.cats.find(x=>x.ad===k[1]);if(!c){c={id:uid(),ad:k[1]};db.cats.push(c)}return c.id;
+}
+function seedProd(name){
+  let p=db.products.find(x=>x.ad===name);
+  if(!p){p={id:uid(),ad:name,resim:'',cid:''};db.products.push(p)}
+  if(!p.cid)p.cid=catFor(name);
+  return p.id;
+}
 $('seed').onclick=()=>{
-  if(db.uretim.length&&!confirm('Mevcut üretim kayıtlarının altına eklenecek. Devam?'))return;
-  SEED.split('\n').forEach(l=>{const[t,u,a,d,f]=l.split('|');db.uretim.push({id:uid(),tarih:t,pid:pidOf(db,u),adet:a,dk:d,fil:f})});
+  if((db.uretim.length||db.satis.length)&&!confirm('Mevcut üretim ve satış kayıtları silinip tablodaki kayıtlar yüklenecek. Ürün resimleri ve kategoriler korunur. Devam?'))return;
+  db.uretim=[];db.satis=[];
+  SEED_U.split('\n').forEach(l=>{const[t,u,a,d,f]=l.split('|');db.uretim.push({id:uid(),tarih:t,pid:seedProd(u),adet:a,dk:d,fil:f})});
+  SEED_S.split('\n').forEach(l=>{const[t,u,a,f]=l.split('|');db.satis.push({id:uid(),tarih:t,pid:seedProd(u),adet:a,fiyat:f})});
   save();render();$('mSet').classList.remove('show');
 };
 
