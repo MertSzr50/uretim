@@ -25,7 +25,7 @@ main{padding:10px;max-width:900px;margin:auto}
 .fab{position:fixed;right:18px;bottom:calc(env(safe-area-inset-bottom) + 18px);width:58px;height:58px;border-radius:50%;background:var(--pr);color:#fff;font-size:32px;border:0;box-shadow:0 4px 14px rgba(0,0,0,.3);z-index:6}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:flex-end;z-index:10}
 .modal.show{display:flex}
-#mPick{z-index:30}#mProd{z-index:20}
+#mPick{z-index:30}#mProd{z-index:20}#mCat{z-index:25}
 .sheet{background:var(--bg);width:100%;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px;max-width:720px;margin:auto}
 label{display:block;font-size:13px;color:var(--mu);margin:10px 0 4px}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -64,6 +64,7 @@ table.grid{border-collapse:separate;border-spacing:0;font-size:13px;min-width:10
 .pc .im img{width:100%;height:100%;object-fit:cover}
 .pc .nm{padding:8px 10px;font-weight:600;font-size:14px}
 .pc .sm{padding:0 10px 10px;font-size:12px;color:var(--mu)}
+.cat{margin-bottom:18px}.chead{display:flex;align-items:center;gap:6px;margin:4px 2px 8px}.chead b{flex:1;font-size:15px}.chead b small{color:var(--mu);font-weight:400}.chead button{border:1px solid var(--bd);background:var(--card);color:var(--tx);border-radius:8px;padding:6px 10px;font-size:13px}
 .pprev{width:120px;height:120px;border-radius:12px;background:var(--hd);object-fit:cover;display:block;margin:8px 0}
 .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px}
 .stat{background:var(--card);border-radius:12px;padding:10px;text-align:center;border:1px solid var(--bd)}
@@ -137,6 +138,7 @@ table.sm{width:100%;border-collapse:collapse;background:var(--card);border-radiu
 <!-- ÜRÜN FORMU -->
 <div class="modal" id="mProd"><div class="sheet">
   <h2 id="pTitle" style="margin:0 0 6px">Yeni ürün</h2>
+  <label>Kategori</label><div class="ff"><select id="fpCat"></select><button type="button" id="pNewCat">＋</button></div>
   <label>Ürün adı</label><input id="fpAd" placeholder="Örn: Yıldız Anahtarlık Kırmızı">
   <label>Resim</label>
   <img id="fpPrev" class="pprev hide" alt="">
@@ -145,6 +147,15 @@ table.sm{width:100%;border-collapse:collapse;background:var(--card);border-radiu
   <button class="btn" id="pSave">Kaydet</button>
   <button class="btn del hide" id="pDel">Ürünü sil</button>
   <button class="btn sec" data-close="mProd">Vazgeç</button>
+</div></div>
+
+<!-- KATEGORİ FORMU -->
+<div class="modal" id="mCat"><div class="sheet">
+  <h2 id="cTitle" style="margin:0 0 6px">Yeni kategori</h2>
+  <label>Kategori adı</label><input id="fcAd" placeholder="Örn: Kalp">
+  <button class="btn" id="cSave">Kaydet</button>
+  <button class="btn del hide" id="cDel">Kategoriyi sil</button>
+  <button class="btn sec" data-close="mCat">Vazgeç</button>
 </div></div>
 
 <!-- AYARLAR -->
@@ -183,10 +194,10 @@ const fdate=iso=>{if(!iso)return '';const[y,m,d]=iso.split('-');return `${d}/${m
 const L=i=>String.fromCharCode(65+i);
 
 /* ---------- veri ---------- */
-function pidOf(d,name){let p=d.products.find(x=>x.ad===name);if(!p){p={id:uid(),ad:name,resim:''};d.products.push(p)}return p.id}
+function pidOf(d,name){let p=d.products.find(x=>x.ad===name);if(!p){p={id:uid(),ad:name,resim:'',cid:''};d.products.push(p)}return p.id}
 function load(){
   try{const d=JSON.parse(localStorage.getItem(KEY));if(d)return d}catch(e){}
-  const d={products:[],uretim:[],satis:[],set:{dk:0.2,carpan:2}};
+  const d={products:[],cats:[],uretim:[],satis:[],set:{dk:0.2,carpan:2}};
   try{ // v1'den taşı
     const os=JSON.parse(localStorage.getItem('uretim_set_v1'));if(os)d.set=os;
     const old=JSON.parse(localStorage.getItem('uretim_v1'));
@@ -194,7 +205,7 @@ function load(){
   }catch(e){}
   return d;
 }
-let db=load();
+let db=load();if(!db.cats)db.cats=[];
 function save(){localStorage.setItem(KEY,JSON.stringify(db))}
 const prod=id=>db.products.find(p=>p.id===id);
 const pname=id=>prod(id)?prod(id).ad:'—';
@@ -339,9 +350,14 @@ document.querySelectorAll('[data-pk]').forEach(b=>b.onclick=()=>drawPick(b.datas
 $('pkClose').onclick=()=>$('mPick').classList.remove('show');
 
 /* ---------- ürün seçimi ---------- */
+function prodOpts(){
+  const groups=db.cats.map(c=>[c.ad,db.products.filter(p=>p.cid===c.id)]);
+  groups.push(['Kategorisiz',db.products.filter(p=>!p.cid||!db.cats.some(c=>c.id===p.cid))]);
+  return groups.filter(g=>g[1].length).map(([n,ps])=>`<optgroup label="${esc(n)}">`+ps.map(p=>`<option value="${p.id}">${esc(p.ad)}</option>`).join('')+'</optgroup>').join('');
+}
 function fillSel(id,val){
   const s=$(id);
-  s.innerHTML=db.products.length?db.products.map(p=>`<option value="${p.id}">${esc(p.ad)}</option>`).join(''):'<option value="">(önce ürün ekle ＋)</option>';
+  s.innerHTML=db.products.length?prodOpts():'<option value="">(önce ürün ekle ＋)</option>';
   if(val)s.value=val;
 }
 
@@ -393,20 +409,61 @@ $('sDel').onclick=()=>{if(confirm('Bu satış silinsin mi?')){db.satis.splice(ed
 
 /* ---------- ürünler ---------- */
 let editP=null,pImg='',pCb=null;
+function pcard(p){
+  const nu=db.uretim.filter(r=>r.pid===p.id).length,ns=db.satis.filter(r=>r.pid===p.id).length;
+  return `<div class="pc" data-pid="${p.id}"><div class="im">${p.resim?`<img src="${p.resim}" alt="">`:'📦'}</div><div class="nm">${esc(p.ad)}</div><div class="sm">${nu} üretim · ${ns} satış</div></div>`;
+}
 function renderProducts(){
   const el=$('vUrunler');
-  if(!db.products.length){el.innerHTML='<div class="empty">Henüz ürün yok. + ile ürün adı ve resmi ekle.</div>';return}
-  el.innerHTML='<div class="plist">'+db.products.map(p=>{
-    const nu=db.uretim.filter(r=>r.pid===p.id).length,ns=db.satis.filter(r=>r.pid===p.id).length;
-    return `<div class="pc" data-pid="${p.id}"><div class="im">${p.resim?`<img src="${p.resim}" alt="">`:'📦'}</div><div class="nm">${esc(p.ad)}</div><div class="sm">${nu} üretim · ${ns} satış</div></div>`}).join('')+'</div>';
+  const sec=(cid,name)=>{
+    const ps=db.products.filter(p=>cid?p.cid===cid:(!p.cid||!db.cats.some(c=>c.id===p.cid)));
+    if(!cid&&!ps.length)return '';
+    return `<div class="cat"><div class="chead"><b>${esc(name)} <small>(${ps.length})</small></b>${cid?`<button class="cedit" data-cid="${cid}">✎</button>`:''}<button class="cadd" data-cid="${cid}">＋ Ürün</button></div>`+
+      (ps.length?'<div class="plist">'+ps.map(pcard).join('')+'</div>':'<div class="empty" style="padding:10px">Bu kategoride ürün yok.</div>')+'</div>';
+  };
+  let h='<button class="btn sec" id="addCat" style="margin:0 0 14px">＋ Yeni kategori</button>';
+  if(!db.products.length&&!db.cats.length)h+='<div class="empty">Önce kategori ekle (Kalp, Yıldız, Kedi gibi), sonra içine ürün ekle.</div>';
+  else h+=db.cats.map(c=>sec(c.id,c.ad)).join('')+sec('','Kategorisiz');
+  el.innerHTML=h;
 }
-$('vUrunler').onclick=e=>{const c=e.target.closest('.pc');if(c)openP(c.dataset.pid)};
-function openP(id,cb){
+$('vUrunler').onclick=e=>{
+  if(e.target.closest('#addCat'))return openC();
+  const a=e.target.closest('.cadd');if(a)return openP(null,null,a.dataset.cid);
+  const ed=e.target.closest('.cedit');if(ed)return openC(ed.dataset.cid);
+  const c=e.target.closest('.pc');if(c)openP(c.dataset.pid);
+};
+function fillCat(val){
+  $('fpCat').innerHTML='<option value="">Kategorisiz</option>'+db.cats.map(c=>`<option value="${c.id}">${esc(c.ad)}</option>`).join('');
+  $('fpCat').value=val||'';
+}
+function openP(id,cb,cid){
   editP=id||null;pCb=cb||null;const p=editP?prod(editP):null;
   $('pTitle').textContent=p?'Ürünü düzenle':'Yeni ürün';
+  fillCat(p?p.cid:(cid||''));
   $('fpAd').value=p?p.ad:'';pImg=p?p.resim:'';$('fpFile').value='';showPrev();
   $('pDel').classList.toggle('hide',!p);$('mProd').classList.add('show');
 }
+$('pNewCat').onclick=()=>openC(null,id=>fillCat(id));
+/* kategori formu */
+let editC=null,cCb=null;
+function openC(id,cb){
+  editC=id||null;cCb=cb||null;const c=editC?db.cats.find(x=>x.id===editC):null;
+  $('cTitle').textContent=c?'Kategoriyi düzenle':'Yeni kategori';
+  $('fcAd').value=c?c.ad:'';$('cDel').classList.toggle('hide',!c);$('mCat').classList.add('show');
+}
+$('cSave').onclick=()=>{
+  const ad=$('fcAd').value.trim();if(!ad){alert('Kategori adı gerekli.');return}
+  let id=editC;
+  if(editC)db.cats.find(x=>x.id===editC).ad=ad;else{id=uid();db.cats.push({id,ad})}
+  save();render();$('mCat').classList.remove('show');
+  if(cCb)cCb(id);cCb=null;
+};
+$('cDel').onclick=()=>{
+  if(confirm('Kategori silinsin mi? İçindeki ürünler silinmez, "Kategorisiz"e geçer.')){
+    db.products.forEach(p=>{if(p.cid===editC)p.cid=''});
+    db.cats=db.cats.filter(c=>c.id!==editC);save();render();$('mCat').classList.remove('show');
+  }
+};
 function showPrev(){$('fpPrev').classList.toggle('hide',!pImg);$('pRmImg').classList.toggle('hide',!pImg);if(pImg)$('fpPrev').src=pImg}
 $('fpFile').onchange=e=>{
   const f=e.target.files[0];if(!f)return;
@@ -423,7 +480,8 @@ $('pRmImg').onclick=()=>{pImg='';showPrev()};
 $('pSave').onclick=()=>{
   const ad=$('fpAd').value.trim();if(!ad){alert('Ürün adı gerekli.');return}
   let id=editP;
-  if(editP){const p=prod(editP);p.ad=ad;p.resim=pImg}else{id=uid();db.products.push({id,ad,resim:pImg})}
+  const cid=$('fpCat').value;
+  if(editP){const p=prod(editP);p.ad=ad;p.resim=pImg;p.cid=cid}else{id=uid();db.products.push({id,ad,resim:pImg,cid})}
   save();render();$('mProd').classList.remove('show');
   if(pCb)pCb(id);pCb=null;
 };
@@ -468,8 +526,8 @@ function csv(sk){
 $('exCsvU').onclick=()=>csv('uretim');$('exCsvS').onclick=()=>csv('satis');
 $('exJson').onclick=()=>dl('uretim-yedek.json',JSON.stringify(db),'application/json');
 $('imJson').onclick=()=>$('file').click();
-$('file').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{try{const d=JSON.parse(rd.result);if(!d.products||!d.uretim)throw 0;db=d;if(!db.satis)db.satis=[];save();render();alert('Yüklendi.')}catch(x){alert('Dosya okunamadı.')}};rd.readAsText(f)};
-$('clear').onclick=()=>{if(confirm('Ürünler, üretim ve satış dahil HER ŞEY silinsin mi?')){db={products:[],uretim:[],satis:[],set:db.set};save();render();$('mSet').classList.remove('show')}};
+$('file').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{try{const d=JSON.parse(rd.result);if(!d.products||!d.uretim)throw 0;db=d;if(!db.satis)db.satis=[];if(!db.cats)db.cats=[];save();render();alert('Yüklendi.')}catch(x){alert('Dosya okunamadı.')}};rd.readAsText(f)};
+$('clear').onclick=()=>{if(confirm('Ürünler, üretim ve satış dahil HER ŞEY silinsin mi?')){db={products:[],cats:[],uretim:[],satis:[],set:db.set};save();render();$('mSet').classList.remove('show')}};
 
 const SEED=`2026-07-02|Hareketli Altıgen Anahtarlık|30|446|196.23
 2026-07-02|Hareketli Kedi|21|738|230
